@@ -1,8 +1,10 @@
 library flutter_action_cable;
 
+import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 
+import 'package:flutter_action_cable/connection_monitor.dart';
 import 'package:meta/meta.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -20,14 +22,21 @@ class ActionCable {
   WebSocketChannel _webSocketChannel;
 
   Set<ChannelSubscription> _subscriptions;
+  ConnectionMonitor _monitor;
+  bool _connected = false;
+  Completer _connectionCompleter;
 
   ActionCable(Uri url) : this._url = url {
-    _connect();
     _subscriptions = {};
+    _monitor = ConnectionMonitor(this);
   }
+
+  bool get connected => _connected;
 
   void subscribe(ChannelSubscription subscription) {
     subscription._consumer = this;
+    if (_subscriptions.length == 0) open();
+
     _subscriptions.add(subscription);
     sendCommand(subscription, "subscribe");
   }
@@ -37,6 +46,36 @@ class ActionCable {
     if (findAll(subscription.identifier).isNotEmpty) {
       sendCommand(subscription, "unsubscribe");
     }
+  }
+
+  void open() {
+    if (!connected) {
+      _connect();
+      _monitor.start();
+    }
+  }
+
+  void close({allowReconect = true}) {
+    if (!allowReconect) _monitor.stop();
+    if (connected) {
+      _webSocketChannel.sink.close();
+
+      _monitor.start();
+    }
+  }
+
+  void reopen() {
+    if (connected) {
+      close();
+    } else {
+      open();
+    }
+  }
+
+  Future<void> ensureConnected() async {
+    _connectionCompleter ??= Completer();
+
+    await _connectionCompleter.future;
   }
 
   List<ChannelSubscription> reject(identifier) {
@@ -49,6 +88,7 @@ class ActionCable {
 
   void forget(subscription) {
     _subscriptions.remove(subscription);
+    if (_subscriptions.length == 0) close(allowReconect: false);
   }
 
   List<ChannelSubscription> findAll(String identifier) {
@@ -67,14 +107,18 @@ class ActionCable {
     }
   }
 
-  void sendCommand(ChannelSubscription subscription, String command) {
-    send({
+  Future<void> sendCommand(
+      ChannelSubscription subscription, String command) async {
+    await send({
       'command': command,
       'identifier': subscription.identifier,
     });
   }
 
   void _onDone() {
+    _connected = false;
+    _monitor.recordDisconnect();
+    _connectionCompleter = null;
     return notifyAll("disconnected");
   }
 
@@ -84,16 +128,21 @@ class ActionCable {
     var message = data['message'];
     var reason = data['reason'];
     var type = data['type'];
+    var reconnect = data['reconnect'];
 
     switch (type) {
       case MessageTypes.welcome:
+        _monitor.recordConnect();
+        _connectionCompleter?.complete(true);
         reload();
         break;
       case MessageTypes.disconnect:
         print("Disconnecting. Reason: $reason");
-        _webSocketChannel.sink.close();
+        // close(allowReconect: reconnect);
+        close();
         break;
       case MessageTypes.ping:
+        _monitor.recordPing();
         break;
       case MessageTypes.confirmation:
         for (var subscription in findAll(identifier)) {
@@ -110,17 +159,21 @@ class ActionCable {
     }
   }
 
-  void send(Map<String, dynamic> data) {
-    return _webSocketChannel.sink.add(json.encode(data));
+  Future<void> send(Map<String, dynamic> data) async {
+    await ensureConnected();
+
+    _webSocketChannel.sink.add(json.encode(data));
   }
 
   void dispose() {
     _webSocketChannel.sink.close();
+    _monitor.dispose();
   }
 
   void _connect() {
     _webSocketChannel = WebSocketChannel.connect(_url)
       ..stream.listen(_onEvent, onDone: _onDone);
+    _connected = true;
   }
 }
 
@@ -134,16 +187,14 @@ abstract class ChannelSubscription {
     identifier = _encodeChannelId(channelName, params);
   }
 
-  void perform(String action, Map data) {
+  Future<void> perform(String action, Map data) async {
     data['action'] ??= action;
 
-    send(data);
+    await send(data);
   }
 
-  void send(data) {
-    assert(_connected);
-
-    _consumer.send({
+  Future<void> send(data) async {
+    await _consumer.send({
       'command': "message",
       "identifier": identifier,
       'data': json.encode(data),
