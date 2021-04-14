@@ -9,11 +9,11 @@ int secondsSince(DateTime time) {
 class ConnectionMonitor {
   final ActionCable connection;
   int reconnectAttempts = 0;
-  DateTime startedAt;
-  DateTime stoppedAt;
-  DateTime disconnectedAt;
-  DateTime pingedAt;
-  Timer pollTimer;
+  DateTime? startedAt;
+  DateTime? stoppedAt;
+  DateTime? disconnectedAt;
+  DateTime? pingedAt;
+  Timer? pollTimer;
   static int staleThreshold = 6;
 
   ConnectionMonitor(this.connection);
@@ -86,12 +86,12 @@ class ConnectionMonitor {
   }
 
   bool get connectionIsStale {
-    return secondsSince(pingedAt ?? startedAt) > staleThreshold;
+    return secondsSince(pingedAt ?? startedAt!) > staleThreshold;
   }
 
   bool get disconnectedRecently {
     return disconnectedAt != null &&
-        (secondsSince(disconnectedAt) < staleThreshold);
+        (secondsSince(disconnectedAt!) < staleThreshold);
   }
 
   void dispose() {

@@ -19,15 +19,14 @@ class MessageTypes {
 class ActionCable {
   final Uri _url;
 
-  WebSocketChannel _webSocketChannel;
+  late WebSocketChannel _webSocketChannel;
 
-  Set<ChannelSubscription> _subscriptions;
-  ConnectionMonitor _monitor;
+  late ConnectionMonitor _monitor;
+  Set<ChannelSubscription> _subscriptions = {};
   bool _connected = false;
-  Completer _connectionCompleter;
+  Completer? _connectionCompleter;
 
   ActionCable(Uri url) : this._url = url {
-    _subscriptions = {};
     _monitor = ConnectionMonitor(this);
   }
 
@@ -75,7 +74,7 @@ class ActionCable {
   Future<void> ensureConnected() async {
     _connectionCompleter ??= Completer();
 
-    await _connectionCompleter.future;
+    await _connectionCompleter!.future;
   }
 
   List<ChannelSubscription> reject(identifier) {
@@ -101,7 +100,7 @@ class ActionCable {
         .map((subscription) => sendCommand(subscription, "subscribe"));
   }
 
-  void notifyAll(String callbackName, [Map args]) {
+  void notifyAll(String callbackName, [Map? args]) {
     for (var subscription in _subscriptions) {
       subscription._dispatch(callbackName, args);
     }
@@ -178,12 +177,12 @@ class ActionCable {
 }
 
 abstract class ChannelSubscription {
-  ActionCable _consumer;
-  String identifier;
+  late ActionCable _consumer;
+  late String identifier;
 
-  bool _connected;
+  bool? _connected;
 
-  ChannelSubscription([Map params]) {
+  ChannelSubscription([Map? params]) {
     identifier = _encodeChannelId(channelName, params);
   }
 
@@ -205,13 +204,13 @@ abstract class ChannelSubscription {
     _consumer.remove(this);
   }
 
-  void _dispatch(String callbackName, [Map params]) {
+  void _dispatch(String callbackName, [Map? params]) {
     if (callbackName == 'connected')
       connected(params);
     else if (callbackName == 'disconnected')
       disconnected(params);
     else
-      onAction(callbackName, params);
+      onAction(callbackName, params ?? {});
   }
 
   String get channelName;
@@ -219,17 +218,17 @@ abstract class ChannelSubscription {
   void onAction(String action, Map params);
 
   @mustCallSuper
-  void connected(Map params) {
+  void connected(Map? params) {
     _connected = true;
   }
 
   @mustCallSuper
-  void disconnected(Map params) {
+  void disconnected(Map? params) {
     _connected = false;
   }
 }
 
-String _encodeChannelId(String channelName, Map channelParams) {
+String _encodeChannelId(String channelName, Map? channelParams) {
   Map channelId = channelParams == null ? {} : Map.from(channelParams);
   channelId['channel'] ??= channelName;
 
