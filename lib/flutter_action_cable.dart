@@ -137,8 +137,7 @@ class ActionCable {
         break;
       case MessageTypes.disconnect:
         print("Disconnecting. Reason: $reason");
-        // close(allowReconect: reconnect);
-        close();
+        close(allowReconect: reconnect);
         break;
       case MessageTypes.ping:
         _monitor.recordPing();
